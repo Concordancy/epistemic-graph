@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Epistemic Graph</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #0d0d0d;
+      color: #e0e0e0;
+      font-family: 'Courier New', monospace;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      gap: 2rem;
+    }
+
+    h1 {
+      font-size: 2.2rem;
+      letter-spacing: 0.15em;
+      color: #a0c4ff;
+      text-transform: uppercase;
+    }
+
+    .subtitle {
+      font-size: 0.95rem;
+      color: #666;
+      letter-spacing: 0.08em;
+      max-width: 520px;
+      text-align: center;
+      line-height: 1.7;
+    }
+
+    .status {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      font-size: 0.85rem;
+      color: #4caf50;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      background: #4caf50;
+      border-radius: 50%;
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+
+    .node-types {
+      display: flex;
+      gap: 1rem;
+      flex-wrap: wrap;
+      justify-content: center;
+      max-width: 600px;
+    }
+
+    .tag {
+      padding: 0.3rem 0.8rem;
+      border-radius: 3px;
+      font-size: 0.78rem;
+      letter-spacing: 0.05em;
+      border: 1px solid;
+    }
+
+    .tag.question    { color: #ff9e64; border-color: #ff9e64; }
+    .tag.stance      { color: #a0c4ff; border-color: #a0c4ff; }
+    .tag.conclusion  { color: #b9f2a1; border-color: #b9f2a1; }
+    .tag.tool        { color: #c9b1ff; border-color: #c9b1ff; }
+    .tag.implication { color: #ffd6a5; border-color: #ffd6a5; }
+  </style>
+</head>
+<body>
+  <h1>Epistemic Graph</h1>
+
+  <p class="subtitle">
+    A typed knowledge graph for collaborative research.<br>
+    Philosophy and formalism in dialogue — not sequence.
+  </p>
+
+  <div class="status">
+    <div class="dot"></div>
+    <span>Server live</span>
+  </div>
+
+  <div class="node-types">
+    <span class="tag question">Open Question</span>
+    <span class="tag stance">Provisional Stance</span>
+    <span class="tag conclusion">Derived Conclusion</span>
+    <span class="tag tool">Imported Tool</span>
+    <span class="tag implication">Concrete Implication</span>
+  </div>
+</body>
+</html>
