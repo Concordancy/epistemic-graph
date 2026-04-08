@@ -37,8 +37,8 @@
 
     /* ── Main ── */
     #main { display: flex; flex: 1; overflow: hidden; position: relative; }
-    #graph-container { flex: 1; }
-    #graph-container canvas { display: block; }
+    #graph-container { flex: 1; min-height: 0; position: relative; }
+    #graph-container canvas { display: block; width: 100% !important; height: 100% !important; }
 
     /* ── Legend ── */
     #legend { position: absolute; top: 1rem; left: 1rem; display: flex; flex-direction: column; gap: 0.35rem; pointer-events: none; }
