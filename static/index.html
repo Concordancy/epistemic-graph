@@ -5,99 +5,416 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Epistemic Graph</title>
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0a0a0a;
+      --surface:   #111111;
+      --border:    #222222;
+      --text:      #d4d4d4;
+      --muted:     #555555;
+      --accent:    #a0c4ff;
+
+      --open-q:    #ff9e64;
+      --stance:    #a0c4ff;
+      --conclusion:#b9f2a1;
+      --tool:      #c9b1ff;
+      --implication:#ffd6a5;
+      --glossary:  #89d4cf;
+    }
 
     body {
-      background: #0d0d0d;
-      color: #e0e0e0;
+      background: var(--bg);
+      color: var(--text);
       font-family: 'Courier New', monospace;
+      font-size: 14px;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── Landing ── */
+    #landing {
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      min-height: 100vh;
       gap: 2rem;
+      height: 100vh;
+      padding: 2rem;
     }
 
-    h1 {
-      font-size: 2.2rem;
-      letter-spacing: 0.15em;
-      color: #a0c4ff;
+    #landing h1 {
+      font-size: 0.75rem;
+      letter-spacing: 0.3em;
+      color: var(--muted);
       text-transform: uppercase;
     }
 
-    .subtitle {
-      font-size: 0.95rem;
-      color: #666;
-      letter-spacing: 0.08em;
-      max-width: 520px;
-      text-align: center;
-      line-height: 1.7;
+    #objects-list {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      max-width: 640px;
+      width: 100%;
     }
 
-    .status {
+    .object-card {
+      border: 1px solid var(--border);
+      padding: 1.5rem 2rem;
+      cursor: pointer;
+      transition: border-color 0.2s;
+      position: relative;
+    }
+    .object-card:hover { border-color: var(--accent); }
+    .object-card h2 {
+      font-size: 1.1rem;
+      color: var(--accent);
+      margin-bottom: 0.5rem;
+      letter-spacing: 0.05em;
+    }
+    .object-card p { color: var(--muted); font-size: 0.85rem; line-height: 1.6; }
+
+    .new-object-btn {
+      background: none;
+      border: 1px dashed var(--border);
+      color: var(--muted);
+      padding: 1rem 2rem;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 0.85rem;
+      width: 100%;
+      max-width: 640px;
+      letter-spacing: 0.1em;
+      transition: border-color 0.2s, color 0.2s;
+    }
+    .new-object-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+    /* ── App shell ── */
+    #app { display: none; flex-direction: column; height: 100vh; }
+
+    /* Top bar */
+    #topbar {
       display: flex;
       align-items: center;
-      gap: 0.6rem;
-      font-size: 0.85rem;
-      color: #4caf50;
-    }
-
-    .dot {
-      width: 8px;
-      height: 8px;
-      background: #4caf50;
-      border-radius: 50%;
-      animation: pulse 2s infinite;
-    }
-
-    @keyframes pulse {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.3; }
-    }
-
-    .node-types {
-      display: flex;
       gap: 1rem;
-      flex-wrap: wrap;
-      justify-content: center;
-      max-width: 600px;
+      padding: 0.6rem 1rem;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
     }
+    #back-btn {
+      background: none; border: none; color: var(--muted);
+      cursor: pointer; font-family: inherit; font-size: 0.8rem;
+      letter-spacing: 0.1em; padding: 0.2rem 0.5rem;
+    }
+    #back-btn:hover { color: var(--text); }
+    #obj-name { font-size: 0.9rem; color: var(--accent); letter-spacing: 0.05em; flex: 1; }
+    #obj-desc { font-size: 0.75rem; color: var(--muted); }
 
-    .tag {
-      padding: 0.3rem 0.8rem;
-      border-radius: 3px;
-      font-size: 0.78rem;
-      letter-spacing: 0.05em;
+    .tab-btn {
+      background: none; border: none; color: var(--muted);
+      cursor: pointer; font-family: inherit; font-size: 0.75rem;
+      letter-spacing: 0.1em; padding: 0.3rem 0.8rem;
+      border-bottom: 2px solid transparent;
+      text-transform: uppercase;
+    }
+    .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+    .tab-btn:hover { color: var(--text); }
+
+    /* ── Main area ── */
+    #main { display: flex; flex: 1; overflow: hidden; }
+
+    /* Graph panel */
+    #graph-panel { flex: 1; position: relative; }
+    #graph-canvas { width: 100%; height: 100%; }
+
+    /* Detail panel */
+    #detail-panel {
+      width: 360px;
+      border-left: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      transition: width 0.2s;
+    }
+    #detail-panel.hidden { width: 0; border: none; }
+
+    #detail-header {
+      padding: 1rem;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: flex-start;
+      gap: 0.5rem;
+    }
+    #detail-type-badge {
+      font-size: 0.65rem;
+      padding: 0.2rem 0.5rem;
+      border-radius: 2px;
       border: 1px solid;
+      letter-spacing: 0.05em;
+      white-space: nowrap;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+    #detail-title {
+      font-size: 0.95rem;
+      color: var(--text);
+      line-height: 1.4;
+      flex: 1;
+      outline: none;
+      background: none;
+      border: none;
+      font-family: inherit;
+      resize: none;
+      color: var(--accent);
+    }
+    #detail-close {
+      background: none; border: none; color: var(--muted);
+      cursor: pointer; font-size: 1rem; flex-shrink: 0;
     }
 
-    .tag.question    { color: #ff9e64; border-color: #ff9e64; }
-    .tag.stance      { color: #a0c4ff; border-color: #a0c4ff; }
-    .tag.conclusion  { color: #b9f2a1; border-color: #b9f2a1; }
-    .tag.tool        { color: #c9b1ff; border-color: #c9b1ff; }
-    .tag.implication { color: #ffd6a5; border-color: #ffd6a5; }
+    #detail-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .field-label {
+      font-size: 0.65rem;
+      color: var(--muted);
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      margin-bottom: 0.3rem;
+    }
+
+    .field-value {
+      font-size: 0.82rem;
+      line-height: 1.6;
+      color: var(--text);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      padding: 0.6rem;
+      outline: none;
+      font-family: inherit;
+      resize: vertical;
+      min-height: 60px;
+      width: 100%;
+    }
+    .field-value:focus { border-color: var(--accent); }
+
+    .edges-section h4 {
+      font-size: 0.65rem;
+      color: var(--muted);
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      margin-bottom: 0.5rem;
+    }
+    .edge-item {
+      font-size: 0.78rem;
+      padding: 0.3rem 0.5rem;
+      border-left: 2px solid var(--border);
+      cursor: pointer;
+      margin-bottom: 0.3rem;
+      color: var(--muted);
+    }
+    .edge-item:hover { border-left-color: var(--accent); color: var(--text); }
+    .edge-rel { color: var(--accent); font-size: 0.7rem; margin-right: 0.4rem; }
+
+    #detail-actions {
+      padding: 1rem;
+      border-top: 1px solid var(--border);
+      display: flex;
+      gap: 0.5rem;
+    }
+    .action-btn {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      padding: 0.4rem 0.8rem;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 0.75rem;
+      letter-spacing: 0.08em;
+      flex: 1;
+    }
+    .action-btn:hover { border-color: var(--accent); color: var(--accent); }
+    .action-btn.danger:hover { border-color: #f87171; color: #f87171; }
+
+    /* ── Node creation overlay ── */
+    #create-overlay {
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.8);
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+    }
+    #create-overlay.visible { display: flex; }
+    #create-form {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      padding: 2rem;
+      width: 480px;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+    #create-form h3 { color: var(--accent); font-size: 0.85rem; letter-spacing: 0.1em; }
+    #create-form select, #create-form input, #create-form textarea {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 0.5rem;
+      font-family: inherit;
+      font-size: 0.82rem;
+      width: 100%;
+      outline: none;
+    }
+    #create-form select:focus, #create-form input:focus, #create-form textarea:focus {
+      border-color: var(--accent);
+    }
+    #create-form textarea { min-height: 80px; resize: vertical; }
+    #create-form .form-actions { display: flex; gap: 0.5rem; justify-content: flex-end; }
+    #create-form button {
+      background: none; border: 1px solid var(--border);
+      color: var(--muted); padding: 0.5rem 1.2rem;
+      cursor: pointer; font-family: inherit; font-size: 0.8rem;
+    }
+    #create-form button.primary { border-color: var(--accent); color: var(--accent); }
+    #create-form button:hover { color: var(--text); }
+
+    /* ── FAB ── */
+    #fab {
+      position: absolute; bottom: 2rem; right: 2rem;
+      background: var(--surface); border: 1px solid var(--accent);
+      color: var(--accent); width: 44px; height: 44px;
+      border-radius: 50%; cursor: pointer; font-size: 1.3rem;
+      display: flex; align-items: center; justify-content: center;
+      z-index: 10; transition: background 0.2s;
+    }
+    #fab:hover { background: var(--accent); color: var(--bg); }
+
+    /* Modal for new research object */
+    #object-modal {
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.85);
+      align-items: center; justify-content: center;
+      z-index: 200;
+    }
+    #object-modal.visible { display: flex; }
+    #object-modal form {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      padding: 2rem; width: 480px;
+      display: flex; flex-direction: column; gap: 1rem;
+    }
+    #object-modal h3 { color: var(--accent); font-size: 0.85rem; letter-spacing: 0.1em; }
+    #object-modal input, #object-modal textarea {
+      background: var(--bg); border: 1px solid var(--border);
+      color: var(--text); padding: 0.6rem;
+      font-family: inherit; font-size: 0.85rem; width: 100%; outline: none;
+    }
+    #object-modal textarea { min-height: 80px; resize: vertical; }
+    #object-modal .actions { display: flex; gap: 0.5rem; justify-content: flex-end; }
+    #object-modal button {
+      background: none; border: 1px solid var(--border);
+      color: var(--muted); padding: 0.5rem 1.2rem;
+      cursor: pointer; font-family: inherit; font-size: 0.8rem;
+    }
+    #object-modal button.primary { border-color: var(--accent); color: var(--accent); }
   </style>
 </head>
 <body>
+
+<!-- ── Landing ── -->
+<div id="landing">
   <h1>Epistemic Graph</h1>
+  <div id="objects-list"></div>
+  <button class="new-object-btn" onclick="showObjectModal()">+ new research object</button>
+</div>
 
-  <p class="subtitle">
-    A typed knowledge graph for collaborative research.<br>
-    Philosophy and formalism in dialogue — not sequence.
-  </p>
-
-  <div class="status">
-    <div class="dot"></div>
-    <span>Server live</span>
+<!-- ── App ── -->
+<div id="app">
+  <div id="topbar">
+    <button id="back-btn" onclick="showLanding()">← back</button>
+    <div style="flex:1">
+      <div id="obj-name"></div>
+      <div id="obj-desc"></div>
+    </div>
+    <button class="tab-btn active" onclick="switchTab('graph')">Graph</button>
+    <button class="tab-btn" onclick="switchTab('documents')">Documents</button>
   </div>
 
-  <div class="node-types">
-    <span class="tag question">Open Question</span>
-    <span class="tag stance">Provisional Stance</span>
-    <span class="tag conclusion">Derived Conclusion</span>
-    <span class="tag tool">Imported Tool</span>
-    <span class="tag implication">Concrete Implication</span>
+  <div id="main">
+    <div id="graph-panel">
+      <canvas id="graph-canvas"></canvas>
+      <button id="fab" onclick="showCreateOverlay()" title="Add node">+</button>
+    </div>
+    <div id="detail-panel" class="hidden">
+      <div id="detail-header">
+        <span id="detail-type-badge"></span>
+        <textarea id="detail-title" rows="2" onblur="saveNodeField('title', this.value)"></textarea>
+        <button id="detail-close" onclick="closeDetail()">×</button>
+      </div>
+      <div id="detail-body">
+        <div>
+          <div class="field-label">Body</div>
+          <textarea class="field-value" id="detail-body-text" onblur="saveNodeField('body', this.value)"></textarea>
+        </div>
+        <div id="detail-meta-fields"></div>
+        <div class="edges-section">
+          <h4>Connections</h4>
+          <div id="detail-edges"></div>
+        </div>
+      </div>
+      <div id="detail-actions">
+        <button class="action-btn" onclick="startEdgeFrom()">+ connect</button>
+        <button class="action-btn danger" onclick="deleteCurrentNode()">delete</button>
+      </div>
+    </div>
   </div>
+</div>
+
+<!-- ── Create node overlay ── -->
+<div id="create-overlay" onclick="if(event.target===this)hideCreateOverlay()">
+  <div id="create-form">
+    <h3>NEW NODE</h3>
+    <select id="node-type-select" onchange="updateMetaFields()">
+      <option value="open_question">Open Question</option>
+      <option value="provisional_stance">Provisional Stance</option>
+      <option value="derived_conclusion">Derived Conclusion</option>
+      <option value="imported_tool">Imported Tool</option>
+      <option value="concrete_implication">Concrete Implication</option>
+      <option value="glossary_term">Glossary Term</option>
+    </select>
+    <input id="node-title" placeholder="Title" />
+    <textarea id="node-body" placeholder="Body (optional)"></textarea>
+    <div id="meta-fields"></div>
+    <div class="form-actions">
+      <button onclick="hideCreateOverlay()">cancel</button>
+      <button class="primary" onclick="submitCreateNode()">create</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── New research object modal ── -->
+<div id="object-modal" onclick="if(event.target===this)hideObjectModal()">
+  <form onsubmit="submitNewObject(event)">
+    <h3>NEW RESEARCH OBJECT</h3>
+    <input id="new-obj-name" placeholder="Name" required />
+    <textarea id="new-obj-desc" placeholder="One or two sentence description of what is being studied"></textarea>
+    <div class="actions">
+      <button type="button" onclick="hideObjectModal()">cancel</button>
+      <button type="submit" class="primary">create</button>
+    </div>
+  </form>
+</div>
+
+<script src="app.js"></script>
 </body>
 </html>
