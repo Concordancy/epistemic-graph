@@ -45,20 +45,41 @@ let _mdX = 0, _mdY = 0;
 function makeLabel(text, hexColor) {
   const canvas = document.createElement('canvas');
   const ctx    = canvas.getContext('2d');
-  const font   = '28px Courier New';
-  ctx.font = font;
-  const w = Math.min(ctx.measureText(text).width + 24, 400);
-  canvas.width  = w;
-  canvas.height = 40;
-  ctx.font = font;
-  ctx.fillStyle = hexColor + 'cc';
-  ctx.fillText(text, 12, 28);
+  const fontSize = 22;
+  const font     = `${fontSize}px Courier New`;
+  const maxW     = 320;  // max canvas width in px
+  const lineH    = fontSize + 6;
 
-  const tex = new THREE.CanvasTexture(canvas);
-  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
+  // Word-wrap
+  ctx.font = font;
+  const words = text.split(' ');
+  const lines = [];
+  let current = '';
+  for (const w of words) {
+    const test = current ? current + ' ' + w : w;
+    if (ctx.measureText(test).width > maxW - 16 && current) {
+      lines.push(current);
+      current = w;
+    } else {
+      current = test;
+    }
+  }
+  if (current) lines.push(current);
+
+  const canvasW = Math.min(maxW, Math.max(...lines.map(l => ctx.measureText(l).width)) + 20);
+  const canvasH = lines.length * lineH + 12;
+  canvas.width  = canvasW;
+  canvas.height = canvasH;
+
+  ctx.font = font;
+  ctx.fillStyle = hexColor + 'dd';
+  lines.forEach((line, i) => ctx.fillText(line, 10, fontSize + i * lineH));
+
+  const tex    = new THREE.CanvasTexture(canvas);
+  const mat    = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
   const sprite = new THREE.Sprite(mat);
-  // Scale: canvas units → world units (roughly)
-  sprite.scale.set(w * 0.08, 40 * 0.08, 1);
+  // Scale canvas px -> world units (0.07 is approx world scale)
+  sprite.scale.set(canvasW * 0.07, canvasH * 0.07, 1);
   return sprite;
 }
 
@@ -174,10 +195,9 @@ export function loadGraph(nodeData, edgeData) {
     scene.add(mesh);
     nodeMeshes[node.id] = mesh;
 
-    // Label sprite — truncate title to keep it readable
-    const title = node.title.length > 32 ? node.title.slice(0, 30) + '…' : node.title;
-    const sprite = makeLabel(title, cfg.hex);
-    sprite.position.copy(pos).setY(pos.y + cfg.r + 5);
+    // Label sprite — full title, word-wrapped
+    const sprite = makeLabel(node.title, cfg.hex);
+    sprite.position.set(pos.x, pos.y + cfg.r + 8, pos.z);
     scene.add(sprite);
     nodeSprites[node.id] = sprite;
   });
@@ -254,7 +274,7 @@ function physicsStep() {
     const cfg    = TYPE_CFG[nodes.find(n => n.id === parseInt(id))?.type] || { r: 6 };
 
     if (mesh)   mesh.position.copy(p);
-    if (sprite) sprite.position.set(p.x, p.y + cfg.r + 5, p.z);
+    if (sprite) sprite.position.set(p.x, p.y + cfg.r + 8, p.z);
   });
 
   // Sync edge positions
