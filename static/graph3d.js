@@ -1,7 +1,7 @@
 /**
  * graph3d.js — Epistemic Graph 3D renderer
- * Three.js from CDN. Bespoke — no wrapper libraries.
- * Orbit controls, typed node colours, animated edges.
+ * Three.js bundled locally. Bespoke — no wrapper libraries.
+ * Orbit controls, typed node colours, physics layout, semantic selection.
  */
 
 import * as THREE from './vendor/three.module.js';
@@ -9,12 +9,12 @@ import { OrbitControls } from './vendor/OrbitControls.js';
 
 // ── Type config ───────────────────────────────────────────────────────────────
 export const TYPE_CFG = {
-  open_question:       { color: 0xff9e64, label: 'Open Question',        r: 6 },
-  provisional_stance:  { color: 0xa0c4ff, label: 'Provisional Stance',   r: 5 },
-  derived_conclusion:  { color: 0xb9f2a1, label: 'Derived Conclusion',   r: 5 },
-  imported_tool:       { color: 0xc9b1ff, label: 'Imported Tool',        r: 4 },
-  concrete_implication:{ color: 0xffd6a5, label: 'Concrete Implication', r: 5 },
-  glossary_term:       { color: 0x89d4cf, label: 'Glossary Term',        r: 4 },
+  open_question:       { color: 0xff9e64, label: 'Open Question',        r: 7  },
+  provisional_stance:  { color: 0xa0c4ff, label: 'Provisional Stance',   r: 6  },
+  derived_conclusion:  { color: 0xb9f2a1, label: 'Derived Conclusion',   r: 6  },
+  imported_tool:       { color: 0xc9b1ff, label: 'Imported Tool',        r: 5  },
+  concrete_implication:{ color: 0xffd6a5, label: 'Concrete Implication', r: 6  },
+  glossary_term:       { color: 0x89d4cf, label: 'Glossary Term',        r: 5  },
 };
 
 export const REL_CFG = {
@@ -29,58 +29,71 @@ export const REL_CFG = {
 
 // ── Scene state ───────────────────────────────────────────────────────────────
 let scene, camera, renderer, controls;
-let nodeMeshes = {};   // node_id -> THREE.Mesh
-let edgeLines  = [];   // THREE.Line[]
-let positions  = {};   // node_id -> THREE.Vector3
-let velocities = {};   // node_id -> THREE.Vector3
+let nodeMeshes = {};
+let nodeLabels = {};   // node_id -> CSS2D label (future)
+let edgeLines  = [];
+let positions  = {};
+let velocities = {};
 let nodes = [], edges = [];
 let animId = null;
 let physicsIter = 0;
 
-// Interaction
 let raycaster, mouse;
 let hovered = null, selected = null;
 let onSelectCallback = null;
+
+// Track mousedown position to distinguish click from drag
+let _mdX = 0, _mdY = 0;
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 export function init(container, onSelect) {
   onSelectCallback = onSelect;
 
-  // Scene
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0x0a0a0a);
-  scene.fog = new THREE.FogExp2(0x0a0a0a, 0.008);
+  // Much lighter fog — nodes stay visible much further out
+  scene.fog = new THREE.FogExp2(0x0a0a0a, 0.0015);
 
-  // Camera
-  camera = new THREE.PerspectiveCamera(60, container.clientWidth / container.clientHeight, 0.1, 2000);
-  camera.position.set(0, 0, 280);
+  camera = new THREE.PerspectiveCamera(55, container.clientWidth / container.clientHeight, 0.5, 3000);
+  camera.position.set(0, 0, 450);
 
-  // Renderer
   renderer = new THREE.WebGLRenderer({ antialias: true });
-  renderer.setPixelRatio(window.devicePixelRatio);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setSize(container.clientWidth, container.clientHeight);
+  renderer.shadowMap.enabled = false;
   container.appendChild(renderer.domElement);
 
   // Orbit controls
   controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
-  controls.dampingFactor = 0.08;
-  controls.minDistance = 30;
-  controls.maxDistance = 800;
+  controls.dampingFactor = 0.07;
+  controls.minDistance = 15;
+  controls.maxDistance = 1500;
+  controls.rotateSpeed = 0.6;
+  controls.zoomSpeed = 0.9;
 
-  // Ambient + point light
-  scene.add(new THREE.AmbientLight(0xffffff, 0.4));
-  const pt = new THREE.PointLight(0xffffff, 1.2, 600);
-  pt.position.set(100, 100, 100);
-  scene.add(pt);
+  // Lighting — ambient + three directionals for visible depth shading
+  scene.add(new THREE.AmbientLight(0xffffff, 0.55));
 
-  // Raycaster
+  const lights = [
+    [300, 300, 300, 0.9],
+    [-200, 150, -200, 0.5],
+    [0, -250, 150, 0.3],
+  ];
+  lights.forEach(([x, y, z, intensity]) => {
+    const dl = new THREE.DirectionalLight(0xffffff, intensity);
+    dl.position.set(x, y, z);
+    scene.add(dl);
+  });
+
   raycaster = new THREE.Raycaster();
   mouse = new THREE.Vector2();
 
-  // Events
-  renderer.domElement.addEventListener('mousemove', onMouseMove);
+  // Mouse events
+  renderer.domElement.addEventListener('mousedown', e => { _mdX = e.clientX; _mdY = e.clientY; });
   renderer.domElement.addEventListener('click', onClick);
+  renderer.domElement.addEventListener('mousemove', onMouseMove);
+
   window.addEventListener('resize', () => {
     camera.aspect = container.clientWidth / container.clientHeight;
     camera.updateProjectionMatrix();
@@ -92,45 +105,47 @@ export function init(container, onSelect) {
 
 // ── Load graph data ───────────────────────────────────────────────────────────
 export function loadGraph(nodeData, edgeData) {
-  // Clear existing
   for (const id in nodeMeshes) scene.remove(nodeMeshes[id]);
   edgeLines.forEach(l => scene.remove(l));
   nodeMeshes = {}; edgeLines = []; positions = {}; velocities = {};
   physicsIter = 0;
+  hovered = null; selected = null;
 
   nodes = nodeData;
   edges = edgeData;
 
-  // Spawn nodes on a sphere
-  nodes.forEach((n, i) => {
-    const cfg = TYPE_CFG[n.type] || { color: 0x888888, r: 5 };
+  const n = nodes.length;
 
-    const geo  = new THREE.SphereGeometry(cfg.r, 20, 16);
-    const mat  = new THREE.MeshStandardMaterial({
+  nodes.forEach((node, i) => {
+    const cfg = TYPE_CFG[node.type] || { color: 0x888888, r: 5 };
+
+    const geo = new THREE.SphereGeometry(cfg.r, 24, 18);
+    const mat = new THREE.MeshStandardMaterial({
       color: cfg.color,
       emissive: cfg.color,
-      emissiveIntensity: 0.15,
-      roughness: 0.4,
-      metalness: 0.1,
+      emissiveIntensity: 0.18,
+      roughness: 0.5,
+      metalness: 0.05,
     });
     const mesh = new THREE.Mesh(geo, mat);
-    mesh.userData = { nodeId: n.id, type: n.type };
+    mesh.userData = { nodeId: node.id, type: node.type, label: node.title };
 
-    // Fibonacci sphere distribution
-    const phi   = Math.acos(1 - 2 * (i + 0.5) / nodes.length);
+    // Fibonacci sphere for even initial distribution
+    const phi   = Math.acos(1 - 2 * (i + 0.5) / n);
     const theta = Math.PI * (1 + Math.sqrt(5)) * i;
-    const r     = 120 + Math.random() * 40;
-    const pos   = new THREE.Vector3(
+    const r     = 160 + Math.random() * 60;
+    const pos = new THREE.Vector3(
       r * Math.sin(phi) * Math.cos(theta),
       r * Math.sin(phi) * Math.sin(theta),
       r * Math.cos(phi)
     );
+
     mesh.position.copy(pos);
-    positions[n.id]  = pos.clone();
-    velocities[n.id] = new THREE.Vector3();
+    positions[node.id]  = pos.clone();
+    velocities[node.id] = new THREE.Vector3();
 
     scene.add(mesh);
-    nodeMeshes[n.id] = mesh;
+    nodeMeshes[node.id] = mesh;
   });
 
   buildEdgeLines();
@@ -139,12 +154,14 @@ export function loadGraph(nodeData, edgeData) {
 function buildEdgeLines() {
   edgeLines.forEach(l => scene.remove(l));
   edgeLines = [];
+
   edges.forEach(e => {
     const a = positions[e.from_node_id], b = positions[e.to_node_id];
     if (!a || !b) return;
-    const color = REL_CFG[e.relationship] || 0x444444;
-    const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.5 });
-    const geo = new THREE.BufferGeometry().setFromPoints([a, b]);
+
+    const color = REL_CFG[e.relationship] || 0x555555;
+    const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.45 });
+    const geo = new THREE.BufferGeometry().setFromPoints([a.clone(), b.clone()]);
     const line = new THREE.Line(geo, mat);
     line.userData = { edgeId: e.id, fromId: e.from_node_id, toId: e.to_node_id };
     scene.add(line);
@@ -152,22 +169,22 @@ function buildEdgeLines() {
   });
 }
 
-// ── Physics ───────────────────────────────────────────────────────────────────
-const K_REPEL  = 18000;
-const K_SPRING = 90;
-const DAMPING  = 0.75;
+// ── Force-directed physics ────────────────────────────────────────────────────
+const K_REPEL  = 25000;
+const K_SPRING = 100;
+const DAMPING  = 0.72;
 
 function physicsStep() {
   physicsIter++;
-  const cooling = Math.max(0.02, 1 - physicsIter / 600);
+  const cooling = Math.max(0.015, 1 - physicsIter / 700);
   const ids = Object.keys(positions);
 
-  // Repulsion
+  // Repulsion between all pairs
   for (let i = 0; i < ids.length; i++) {
     for (let j = i + 1; j < ids.length; j++) {
       const a = positions[ids[i]], b = positions[ids[j]];
       const diff = new THREE.Vector3().subVectors(b, a);
-      const d2 = Math.max(1, diff.lengthSq());
+      const d2 = Math.max(4, diff.lengthSq());
       const f  = K_REPEL / d2;
       diff.normalize().multiplyScalar(f);
       velocities[ids[i]].sub(diff);
@@ -181,32 +198,31 @@ function physicsStep() {
     if (!a || !b) return;
     const diff = new THREE.Vector3().subVectors(b, a);
     const d    = Math.max(0.1, diff.length());
-    const f    = (d - K_SPRING) / K_SPRING * 0.25;
+    const f    = (d - K_SPRING) / K_SPRING * 0.22;
     diff.normalize().multiplyScalar(f);
     velocities[e.from_node_id].add(diff);
     velocities[e.to_node_id].sub(diff);
   });
 
-  // Centre gravity
-  ids.forEach(id => {
-    const p = positions[id];
-    velocities[id].addScaledVector(p, -0.002);
-  });
+  // Gentle centre gravity
+  ids.forEach(id => velocities[id].addScaledVector(positions[id], -0.0018));
 
   // Integrate
   ids.forEach(id => {
     velocities[id].multiplyScalar(DAMPING);
     positions[id].addScaledVector(velocities[id], cooling);
-    nodeMeshes[id]?.position.copy(positions[id]);
+    if (nodeMeshes[id]) nodeMeshes[id].position.copy(positions[id]);
   });
 
-  // Update edge geometry
+  // Sync edge geometry
   edgeLines.forEach(line => {
     const a = positions[line.userData.fromId];
     const b = positions[line.userData.toId];
     if (!a || !b) return;
-    line.geometry.setFromPoints([a, b]);
-    line.geometry.attributes.position.needsUpdate = true;
+    const pts = line.geometry.attributes.position;
+    pts.setXYZ(0, a.x, a.y, a.z);
+    pts.setXYZ(1, b.x, b.y, b.z);
+    pts.needsUpdate = true;
   });
 }
 
@@ -215,74 +231,79 @@ function startLoop() {
   if (animId) cancelAnimationFrame(animId);
   function tick() {
     animId = requestAnimationFrame(tick);
-    if (physicsIter < 600) physicsStep();
+    if (physicsIter < 700) physicsStep();
     controls.update();
-    updateHoverGlow();
+    updateHover();
     renderer.render(scene, camera);
   }
   tick();
 }
 
 // ── Hover glow ────────────────────────────────────────────────────────────────
-function updateHoverGlow() {
+function updateHover() {
   raycaster.setFromCamera(mouse, camera);
-  const meshList = Object.values(nodeMeshes);
-  const hits = raycaster.intersectObjects(meshList);
-  const newHover = hits.length ? hits[0].object.userData.nodeId : null;
+  const hits = raycaster.intersectObjects(Object.values(nodeMeshes));
+  const newHov = hits.length ? hits[0].object.userData.nodeId : null;
 
-  if (newHover !== hovered) {
-    if (hovered && nodeMeshes[hovered]) setGlow(hovered, false);
-    hovered = newHover;
-    if (hovered && nodeMeshes[hovered]) setGlow(hovered, true);
-    renderer.domElement.style.cursor = hovered ? 'pointer' : 'default';
+  if (newHov !== hovered) {
+    if (hovered != null) applyGlow(hovered, false);
+    hovered = newHov;
+    if (hovered != null) applyGlow(hovered, true);
+    renderer.domElement.style.cursor = hovered != null ? 'pointer' : 'default';
   }
 }
 
-function setGlow(nodeId, on) {
+function applyGlow(nodeId, on) {
   const mesh = nodeMeshes[nodeId];
   if (!mesh) return;
-  mesh.material.emissiveIntensity = on ? 0.7 : (selected === nodeId ? 0.5 : 0.15);
-  mesh.scale.setScalar(on ? 1.25 : (selected === nodeId ? 1.15 : 1.0));
+  const isSelected = selected === nodeId;
+  mesh.material.emissiveIntensity = on ? 0.75 : (isSelected ? 0.55 : 0.18);
+  mesh.scale.setScalar(on ? 1.3 : (isSelected ? 1.18 : 1.0));
 }
 
-// ── Selection ─────────────────────────────────────────────────────────────────
+// ── Click / selection ─────────────────────────────────────────────────────────
 function onClick(e) {
-  // Don't fire if orbit control dragged
-  if (controls.isRotating) return;
+  // Ignore if mouse moved significantly (was a drag/rotate)
+  const dx = e.clientX - _mdX, dy = e.clientY - _mdY;
+  if (Math.sqrt(dx * dx + dy * dy) > 5) return;
 
   raycaster.setFromCamera(mouse, camera);
   const hits = raycaster.intersectObjects(Object.values(nodeMeshes));
-  if (!hits.length) {
-    deselectAll();
-    return;
-  }
-  const nodeId = hits[0].object.userData.nodeId;
-  selectNode(nodeId);
+
+  if (!hits.length) { deselectAll(); return; }
+  selectNode(hits[0].object.userData.nodeId);
 }
 
 export function selectNode(nodeId) {
   deselectAll();
   selected = nodeId;
-  setGlow(nodeId, true);
+  applyGlow(nodeId, false); // reset hover, apply selected state
 
-  // Highlight connected edges + neighbour nodes
-  edgeLines.forEach(line => {
-    const { fromId, toId } = line.userData;
-    const connected = fromId === nodeId || toId === nodeId;
-    line.material.opacity = connected ? 0.9 : 0.1;
-    line.material.linewidth = connected ? 2 : 1;
-  });
-
+  // Dim unconnected, brighten connected edges
   const neighbourIds = new Set();
   edges.forEach(e => {
     if (e.from_node_id === nodeId) neighbourIds.add(e.to_node_id);
     if (e.to_node_id   === nodeId) neighbourIds.add(e.from_node_id);
   });
+
+  edgeLines.forEach(line => {
+    const conn = line.userData.fromId === nodeId || line.userData.toId === nodeId;
+    line.material.opacity = conn ? 0.95 : 0.06;
+  });
+
   Object.entries(nodeMeshes).forEach(([id, mesh]) => {
     const nid = parseInt(id);
-    if (nid !== nodeId && !neighbourIds.has(nid)) {
-      mesh.material.opacity = 0.25;
+    if (nid === nodeId) {
+      mesh.material.emissiveIntensity = 0.55;
+      mesh.scale.setScalar(1.18);
+    } else if (neighbourIds.has(nid)) {
+      mesh.material.opacity = 1;
+      mesh.material.transparent = false;
+      mesh.material.emissiveIntensity = 0.28;
+    } else {
+      mesh.material.opacity = 0.15;
       mesh.material.transparent = true;
+      mesh.material.emissiveIntensity = 0.05;
     }
   });
 
@@ -292,28 +313,32 @@ export function selectNode(nodeId) {
 
 export function deselectAll() {
   selected = null;
-  edgeLines.forEach(l => { l.material.opacity = 0.5; });
+  edgeLines.forEach(l => { l.material.opacity = 0.45; });
   Object.values(nodeMeshes).forEach(m => {
     m.material.opacity = 1;
     m.material.transparent = false;
     m.scale.setScalar(1);
-    m.material.emissiveIntensity = 0.15;
+    m.material.emissiveIntensity = 0.18;
   });
   if (onSelectCallback) onSelectCallback(null);
 }
 
 // ── Fly-to ────────────────────────────────────────────────────────────────────
-export function flyTo(nodeId, duration = 800) {
+export function flyTo(nodeId, duration = 900) {
   const target = positions[nodeId];
   if (!target) return;
-  const start = camera.position.clone();
-  const dest  = target.clone().addScaledVector(target.clone().normalize(), 60);
-  const t0 = performance.now();
+  const startPos = camera.position.clone();
+  const startTgt = controls.target.clone();
+  // Move camera to a position 70 units in front of the node
+  const dir  = target.clone().normalize();
+  const dest = target.clone().addScaledVector(dir, 70);
+  const t0   = performance.now();
+
   function step() {
-    const t = Math.min(1, (performance.now() - t0) / duration);
-    const ease = t < 0.5 ? 2*t*t : -1+(4-2*t)*t;
-    camera.position.lerpVectors(start, dest, ease);
-    controls.target.lerp(target, ease);
+    const t    = Math.min(1, (performance.now() - t0) / duration);
+    const ease = t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+    camera.position.lerpVectors(startPos, dest, ease);
+    controls.target.lerpVectors(startTgt, target, ease);
     if (t < 1) requestAnimationFrame(step);
   }
   step();
@@ -326,21 +351,19 @@ function onMouseMove(e) {
   mouse.y = -((e.clientY - rect.top)  / rect.height) * 2 + 1;
 }
 
-// ── Public: highlight subset ──────────────────────────────────────────────────
+// ── Public utilities ──────────────────────────────────────────────────────────
 export function highlightSubset(nodeIds) {
   const set = new Set(nodeIds);
   Object.entries(nodeMeshes).forEach(([id, mesh]) => {
     const inSet = set.has(parseInt(id));
-    mesh.material.opacity = inSet ? 1 : 0.08;
+    mesh.material.opacity = inSet ? 1 : 0.07;
     mesh.material.transparent = true;
-    mesh.material.emissiveIntensity = inSet ? 0.4 : 0.05;
+    mesh.material.emissiveIntensity = inSet ? 0.4 : 0.04;
   });
   edgeLines.forEach(l => {
-    const connected = set.has(l.userData.fromId) && set.has(l.userData.toId);
-    l.material.opacity = connected ? 0.8 : 0.03;
+    const conn = set.has(l.userData.fromId) && set.has(l.userData.toId);
+    l.material.opacity = conn ? 0.85 : 0.02;
   });
 }
 
-export function resetHighlight() {
-  deselectAll();
-}
+export function resetHighlight() { deselectAll(); }
