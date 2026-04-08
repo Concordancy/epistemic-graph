@@ -220,6 +220,20 @@ def delete_edge(db: sqlite3.Connection, id: int) -> bool:
 
 # ── Documents ─────────────────────────────────────────────────────────────────
 
+def list_all_edges(db: sqlite3.Connection, research_object_id: int) -> list[dict]:
+    """Return all edges between nodes belonging to a research object."""
+    rows = db.execute(
+        """
+        SELECT e.* FROM edges e
+        JOIN nodes fn ON e.from_node_id = fn.id
+        WHERE fn.research_object_id = ?
+        ORDER BY e.created_at
+        """,
+        (research_object_id,)
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
 def add_document(db: sqlite3.Connection, research_object_id: int, title: str,
                  source_url: str = "", filename: str = "",
                  extracted_text: str = "") -> int:

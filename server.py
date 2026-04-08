@@ -102,6 +102,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
             nodes = db.list_nodes(conn, int(parts[1]), type=query.get("type"))
             return json_response(self, nodes)
 
+        # GET /api/objects/:id/edges  — all edges for a research object in one call
+        if resource == "objects" and len(parts) == 3 and parts[2] == "edges":
+            edges = db.list_all_edges(conn, int(parts[1]))
+            return json_response(self, edges)
+
         # GET /api/objects/:id/documents
         if resource == "objects" and len(parts) == 3 and parts[2] == "documents":
             docs = db.list_documents(conn, int(parts[1]))

@@ -76,18 +76,13 @@ async function openObject(obj) {
 
 async function refreshGraph() {
   const id = state.currentObject.id;
-  state.nodes = await GET(`/objects/${id}/nodes`);
-
-  // Collect all edges
-  const seen = new Set();
-  const allEdges = [];
-  for (const n of state.nodes) {
-    const e = await GET(`/nodes/${n.id}/edges`);
-    for (const edge of e.outgoing) {
-      if (!seen.has(edge.id)) { seen.add(edge.id); allEdges.push(edge); }
-    }
-  }
-  state.edges = allEdges;
+  // Two calls only: nodes + all edges for this object
+  const [nodeData, edgeData] = await Promise.all([
+    GET(`/objects/${id}/nodes`),
+    GET(`/objects/${id}/edges`),
+  ]);
+  state.nodes = nodeData;
+  state.edges = edgeData;
 
   Graph3D.loadGraph(state.nodes, state.edges);
   document.getElementById('node-count').textContent = `${state.nodes.length} nodes · ${state.edges.length} edges`;
