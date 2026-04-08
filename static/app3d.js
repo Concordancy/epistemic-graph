@@ -107,36 +107,49 @@ function onNodeSelected(node) {
 async function openDetail(node) {
   const meta = TYPE_META[node.type] || { color: '#888', label: node.type };
 
+  // Show panel immediately
+  const panel = document.getElementById('detail');
+  panel.style.display = 'flex';
+
   const badge = document.getElementById('detail-badge');
   badge.textContent = meta.label;
   badge.style.color = meta.color;
   badge.style.borderColor = meta.color;
 
-  document.getElementById('detail-title').value = node.title || '';
-  document.getElementById('detail-body-text').value = node.body || '';
+  document.getElementById('detail-title-text').textContent = node.title || '';
+  document.getElementById('detail-body-text').textContent = node.body || '';
 
-  // Type-specific meta
+  // Type-specific meta field
   const mf = document.getElementById('detail-meta');
   mf.innerHTML = '';
   if (meta.metaKey) {
     const val = node.type_metadata?.[meta.metaKey] || '';
-    mf.innerHTML = `<div class="field-label">${meta.metaLabel}</div>
-      <textarea class="field-val" id="meta-val" onblur="saveMetaField('${meta.metaKey}',this.value)">${val}</textarea>`;
+    if (val) {
+      mf.innerHTML = `<div class="field-label">${meta.metaLabel}</div><div class="field-text">${val}</div>`;
+    }
   }
 
-  // Edges
-  const edgesData = await GET(`/nodes/${node.id}/edges`);
+  // Load connections async (panel already visible)
   const edgesDiv = document.getElementById('detail-edges');
-  edgesDiv.innerHTML = '';
-  [...edgesData.outgoing.map(e=>({...e,dir:'out'})),
-   ...edgesData.incoming.map(e=>({...e,dir:'in'}))]
-    .forEach(e => {
+  edgesDiv.innerHTML = '<span style="color:#444;font-size:0.75rem">loading...</span>';
+  try {
+    const edgesData = await GET(`/nodes/${node.id}/edges`);
+    edgesDiv.innerHTML = '';
+    const allEdges = [
+      ...edgesData.outgoing.map(e => ({...e, dir:'out'})),
+      ...edgesData.incoming.map(e => ({...e, dir:'in'}))
+    ];
+    if (!allEdges.length) {
+      edgesDiv.innerHTML = '<span style="color:#444;font-size:0.75rem">no connections</span>';
+    }
+    allEdges.forEach(e => {
       const otherId = e.dir === 'out' ? e.to_node_id : e.from_node_id;
       const other = state.nodes.find(n => n.id === otherId);
       if (!other) return;
       const el = document.createElement('div');
       el.className = 'edge-item';
-      el.innerHTML = `<span class="edge-rel">${e.dir==='out'?'→':'←'} ${e.relationship}</span>${other.title}`;
+      const relColor = {'supports':'#6fcf97','refutes':'#f87171','implies':'#ff9e64','opens':'#ffd6a5','depends_on':'#7eb8f7','instantiates':'#c9b1ff','defines':'#89d4cf'}[e.relationship] || '#888';
+      el.innerHTML = `<span class="edge-rel" style="color:${relColor}">${e.dir==='out'?'→':'←'} ${e.relationship}</span>${other.title}`;
       el.onclick = () => {
         Graph3D.selectNode(otherId);
         Graph3D.flyTo(otherId);
@@ -145,13 +158,14 @@ async function openDetail(node) {
       };
       edgesDiv.appendChild(el);
     });
-
-  document.getElementById('detail').classList.remove('hidden');
+  } catch(err) {
+    edgesDiv.innerHTML = '<span style="color:#f87171;font-size:0.75rem">failed to load</span>';
+  }
 }
 
 window.closeDetail = function() {
   state.selectedNode = null;
-  document.getElementById('detail').classList.add('hidden');
+  document.getElementById('detail').style.display = 'none';
   Graph3D.deselectAll();
 };
 
