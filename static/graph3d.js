@@ -4,8 +4,8 @@
  * Orbit controls, typed node colours, animated edges.
  */
 
-import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.module.js';
-import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.163.0/examples/jsm/controls/OrbitControls.js';
+import * as THREE from './vendor/three.module.js';
+import { OrbitControls } from './vendor/OrbitControls.js';
 
 // ── Type config ───────────────────────────────────────────────────────────────
 export const TYPE_CFG = {
